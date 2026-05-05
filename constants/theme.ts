@@ -5,25 +5,35 @@
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = '#B2AC88'; // Sage Green
+const tintColorDark = '#B2AC88';
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: '#3E3C38',
+    textMuted: '#8B8881',
+    background: '#FBFBF9',
+    surface: '#FFFFFF',
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: '#B2AC88',
+    tabIconDefault: '#D9D1C7',
     tabIconSelected: tintColorLight,
+    sage: '#B2AC88',
+    sand: '#E6D5B8',
+    indigo: '#5F7ADB',
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: '#FBFBF9',
+    textMuted: '#D9D1C7',
+    background: '#3E3C38',
+    surface: '#55534E',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: '#B2AC88',
+    tabIconDefault: '#8B8881',
     tabIconSelected: tintColorDark,
+    sage: '#B2AC88',
+    sand: '#E6D5B8',
+    indigo: '#5F7ADB',
   },
 };
 
