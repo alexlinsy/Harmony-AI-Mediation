@@ -38,6 +38,9 @@ function RootLayoutNav() {
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="breathe" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="archives/index" options={{ headerShown: false }} />
+        <Stack.Screen name="archives/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="mediation" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

@@ -23,7 +23,7 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
   useEffect(() => {
     return () => {
       if (recording) {
-        recording.stopAndUnloadAsync();
+        recording.stopAndUnloadAsync().catch(() => {});
       }
     };
   }, [recording]);
@@ -91,20 +91,24 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
   async function stopRecordingAndSend() {
     if (!recording) return;
 
+    const currentRecording = recording;
     setIsRecording(false);
     setRecording(null);
 
     try {
-      await recording.stopAndUnloadAsync();
+      await currentRecording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        playThroughEarpieceAndroid: false,
       });
-      const uri = recording.getURI();
-      if (uri) {
-        onProcessAudio(uri);
-      }
     } catch (error) {
-      console.error('Failed to stop recording', error);
+      console.error('Failed to stop recording (it might already be stopped)', error);
+    }
+
+    const uri = currentRecording.getURI();
+    if (uri) {
+      onProcessAudio(uri);
     }
   }
 
@@ -119,7 +123,7 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
   const handleClose = () => {
     if (isRecording) {
       // Just stop, don't send
-      recording?.stopAndUnloadAsync();
+      recording?.stopAndUnloadAsync().catch(() => {});
       setIsRecording(false);
       setRecording(null);
     }

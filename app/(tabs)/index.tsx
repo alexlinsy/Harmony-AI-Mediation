@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, StyleSheet, FlatList, ActivityIndicator, Keyboard, Alert } from 'react-native';
-import { Colors } from '@/constants/Colors';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import VoiceChatUI from '@/components/VoiceChatUI';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/lib/AuthContext';
+import { getTherapistModel } from '@/lib/gemini';
 import { useGroup } from '@/lib/GroupContext';
 import { supabase } from '@/lib/supabase';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
-import { getTherapistModel } from '@/lib/gemini';
-import * as FileSystem from 'expo-file-system';
 import * as Speech from 'expo-speech';
-import VoiceChatUI from '@/components/VoiceChatUI';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 type Message = {
   id: string;
@@ -26,7 +26,7 @@ export default function ChatMediatorScreen() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [chatSession, setChatSession] = useState<any>(null);
-  
+
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [hasSubmittedSummary, setHasSubmittedSummary] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -34,6 +34,8 @@ export default function ChatMediatorScreen() {
   const [sessionInputs, setSessionInputs] = useState<any[]>([]);
 
   const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [isCooldownVisible, setIsCooldownVisible] = useState(false);
+  const cooldownCountdownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
 
@@ -59,7 +61,20 @@ export default function ChatMediatorScreen() {
     }
   }, [activeGroup]);
 
+  // Initialize TTS voice settings
+  useEffect(() => {
+    // Note: expo-speech in Expo Go cannot guarantee speaker routing on iOS.
+    // Volume/routing is controlled by iOS hardware after recording.
+  }, []);
+
   async function initializeSession() {
+    // Reset all session state when switching groups
+    setMessages([]);
+    setHasSubmittedSummary(false);
+    setIsGeneratingSummary(false);
+    setSessionInputs([]);
+    setChatSession(null);
+
     // 1. Get group member count
     const { count } = await supabase
       .from('group_members')
@@ -81,7 +96,7 @@ export default function ChatMediatorScreen() {
       const { data: newSession } = await supabase
         .from('mediation_sessions')
         .insert({ group_id: activeGroup!.id })
-        .select('id')
+        .select('id, status')
         .single();
       sessionData = newSession;
     }
@@ -109,7 +124,7 @@ export default function ChatMediatorScreen() {
       .from('session_inputs')
       .select('*')
       .eq('session_id', sessionId);
-    
+
     setSessionInputs(inputs || []);
     const userHasSubmitted = inputs?.some(input => input.user_id === user?.id);
     if (userHasSubmitted) {
@@ -117,25 +132,93 @@ export default function ChatMediatorScreen() {
     }
   }
 
+  // Detect if text is predominantly Chinese
+  const isChinese = (text: string): boolean => {
+    const chineseChars = text.match(/[\u4e00-\u9fff]/g) || [];
+    return chineseChars.length > text.length * 0.2;
+  };
+
+  const speakText = (text: string) => {
+    Speech.stop();
+    if (isChinese(text)) {
+      Speech.speak(text, { language: 'zh-CN', pitch: 1.0, rate: 0.9, volume: 1.0 });
+    } else {
+      Speech.speak(text, { language: 'en-GB', pitch: 1.0, rate: 0.85, volume: 1.0 });
+    }
+  };
+
+  // Analyze emotional intensity and trigger cooldown if too extreme
+  const analyzeAndTriggerCooldown = async (userText: string): Promise<boolean> => {
+    try {
+      const model = getTherapistModel();
+      const tempChat = model.startChat();
+      const prompt = `You are an emotional safety monitor. Analyze the following message for signs of extreme emotional distress, rage, panic, or crisis.
+Respond ONLY with a raw JSON object, no markdown:
+{"triggered": true/false, "reason": "brief reason"}
+
+Set triggered=true ONLY if the message shows: extreme rage/aggression, crisis/self-harm risk, complete emotional breakdown, or highly abusive language.
+
+Message: "${userText}"`;
+      const result = await tempChat.sendMessage(prompt);
+      const raw = result.response.text().replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(raw);
+      if (parsed.triggered === true) {
+        console.log('Cooldown triggered:', parsed.reason);
+        return true;
+      }
+    } catch (e) {
+      console.log('Emotion analysis failed silently:', e);
+    }
+    return false;
+  };
+
+  const triggerCooldown = (lang: 'zh' | 'en' = 'en') => {
+    setIsCooldownVisible(true);
+    Speech.stop();
+    if (lang === 'zh') {
+      Speech.speak(
+        '我能感受到你现在非常崩溃。没关系，让我们暂停一下。在继续之前，请先和我一起做几次深呼吸。',
+        { language: 'zh-CN', pitch: 1.0, rate: 0.8, volume: 1.0 }
+      );
+    } else {
+      Speech.speak(
+        "I can feel how overwhelmed you are right now. Let's pause for a moment. Please take some deep breaths with me before we continue.",
+        { language: 'en-GB', pitch: 1.0, rate: 0.8, volume: 1.0 }
+      );
+    }
+  };
+
+  const handleCooldownComplete = () => {
+    setIsCooldownVisible(false);
+    router.push('/breathe');
+  };
+
   const sendMessage = async () => {
     if (!inputText.trim() || !chatSession) return;
 
     const userText = inputText.trim();
     const newMessage: Message = { id: Date.now().toString(), role: 'user', text: userText };
-    
+
     setMessages(prev => [...prev, newMessage]);
     setInputText('');
     setIsTyping(true);
     Keyboard.dismiss();
 
     try {
+      // Check emotional intensity first
+      const shouldCooldown = await analyzeAndTriggerCooldown(userText);
+      if (shouldCooldown) {
+        triggerCooldown(isChinese(userText) ? 'zh' : 'en');
+        setIsTyping(false);
+        return;
+      }
+
       const result = await chatSession.sendMessage(userText);
       const responseText = result.response.text();
-      
+
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: responseText }]);
-      
-      // Also speak the response out loud
-      Speech.speak(responseText, { pitch: 1, rate: 0.95 });
+
+      speakText(responseText);
     } catch (error) {
       console.error("Chat Error:", error);
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "I'm sorry, I encountered an issue processing that. Please take a deep breath and try again." }]);
@@ -147,29 +230,39 @@ export default function ChatMediatorScreen() {
   const handleProcessAudio = async (uri: string) => {
     setIsVoiceMode(false);
     setIsTyping(true);
-    
+
     try {
-      const base64Audio = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      
-      const prompt = `Please listen to this audio clip. 
-1. Transcribe what the user said exactly. 
-2. Provide your emotional support response as a therapist.
-You must output a raw, valid JSON object with NO markdown formatting, like this:
-{ "transcript": "user text", "response": "your response" }`;
+      const base64Audio = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      console.log("Audio data length:", base64Audio.length);
+
+      const prompt = `You are a transcriber and therapist.
+1. LISTEN carefully to the provided audio.
+2. TRANSCRIBE exactly what the user said in the audio into the "transcript" field. Preserve the original language (Chinese or English).
+3. Detect the language of the transcript. If Chinese, respond in Chinese. If English, respond in English.
+4. RESPOND with a warm, empathetic therapist reply in the same language as the transcript, in the "response" field.
+Output JSON ONLY: { "transcript": "...", "response": "..." }`;
 
       const result = await chatSession.sendMessage([
         { text: prompt },
-        { inlineData: { data: base64Audio, mimeType: Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4' } }
+        { inlineData: { data: base64Audio, mimeType: Platform.OS === 'ios' ? 'audio/mp4' : 'audio/mp4' } }
       ]);
 
       const jsonText = result.response.text();
       const cleanJson = jsonText.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
-      
+
+      // Check if transcript shows extreme emotion
+      const shouldCooldown = await analyzeAndTriggerCooldown(parsed.transcript);
+      if (shouldCooldown) {
+        triggerCooldown(isChinese(parsed.transcript) ? 'zh' : 'en');
+        setIsTyping(false);
+        return;
+      }
+
       setMessages(prev => [...prev, { id: Date.now().toString() + '_u', role: 'user', text: parsed.transcript }]);
       setMessages(prev => [...prev, { id: Date.now().toString() + '_a', role: 'model', text: parsed.response }]);
-      
-      Speech.speak(parsed.response, { pitch: 1, rate: 0.95 });
+
+      speakText(parsed.response);
 
     } catch (error) {
       console.error("Audio processing error:", error);
@@ -218,7 +311,7 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
 
   const handleStartMediationClick = () => {
     if (isReadyForMediation) {
-      Alert.alert("Mediation Ready", "Both statements received! Initializing AI Group Mediation...");
+      router.push('/mediation');
     } else {
       Alert.alert("Waiting for Partner", "A notification has been sent reminding them to share their version of the conflict.");
     }
@@ -248,12 +341,31 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: Colors.background }}>
-      
+
+      {/* Emotional Cooldown Modal */}
+      <Modal visible={isCooldownVisible} transparent animationType="fade">
+        <View style={styles.cooldownOverlay}>
+          <View style={styles.cooldownCard}>
+            <Text style={styles.cooldownEmoji}>🌊</Text>
+            <Text style={styles.cooldownTitle}>Let's Pause for a Moment</Text>
+            <Text style={styles.cooldownBody}>
+              I can sense you're feeling very overwhelmed right now. That's completely okay. Before we continue, let's take a few deep breaths together to help calm your mind and body.
+            </Text>
+            <TouchableOpacity style={styles.cooldownButton} onPress={handleCooldownComplete}>
+              <Text style={styles.cooldownButtonText}>Start Breathing Exercise 🌬️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setIsCooldownVisible(false)} style={{ marginTop: 16 }}>
+              <Text style={{ color: Colors.textMuted, fontSize: 14 }}>I'm okay, continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Voice Chat Modal Overlay */}
-      <VoiceChatUI 
-        visible={isVoiceMode} 
-        onClose={() => setIsVoiceMode(false)} 
-        onProcessAudio={handleProcessAudio} 
+      <VoiceChatUI
+        visible={isVoiceMode}
+        onClose={() => setIsVoiceMode(false)}
+        onProcessAudio={handleProcessAudio}
       />
 
       {/* Header */}
@@ -262,17 +374,17 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
           <Text style={styles.headerTitle} numberOfLines={1}>{activeGroup.name}</Text>
           <Text style={styles.headerSubtitle}>Therapy Session</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          {hasSubmittedSummary && (
-            <TouchableOpacity style={[styles.breatheButton, { backgroundColor: '#E8EAF6' }]} onPress={handleStartMediationClick}>
-              <IconSymbol name="play.fill" size={16} color={Colors.indigo} />
-              <Text style={[styles.breatheText, { color: Colors.indigo }]}>Start Mediation</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.breatheButton} onPress={navigateToBreathe}>
-            <IconSymbol name="wind" size={20} color={Colors.sage} />
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <TouchableOpacity style={[styles.breatheButton, { width: 110 }]} onPress={navigateToBreathe}>
+            <IconSymbol name="wind" size={16} color={Colors.surface} />
             <Text style={styles.breatheText}>Breathe</Text>
           </TouchableOpacity>
+          {hasSubmittedSummary && (
+            <TouchableOpacity style={[styles.breatheButton, { width: 110 }]} onPress={handleStartMediationClick}>
+              <IconSymbol name="play.fill" size={16} color={Colors.surface} />
+              <Text style={[styles.breatheText, { fontSize: 13, marginLeft: 6 }]}>Mediation</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -297,8 +409,8 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
       {!hasSubmittedSummary ? (
         <View style={styles.bottomAreaContainer}>
           {messages.length > 1 && (
-            <TouchableOpacity 
-              style={styles.submitMediationButton} 
+            <TouchableOpacity
+              style={styles.submitMediationButton}
               onPress={handleSubmitMediation}
               disabled={isGeneratingSummary}
             >
@@ -309,12 +421,12 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
               )}
             </TouchableOpacity>
           )}
-          
+
           <View style={styles.inputWrapper}>
             <TouchableOpacity style={styles.voiceButton} onPress={navigateToVoice}>
               <IconSymbol name="mic.fill" size={24} color={Colors.sage} />
             </TouchableOpacity>
-            
+
             <TextInput
               style={styles.textInput}
               placeholder="Share your feelings..."
@@ -324,8 +436,8 @@ You must output a raw, valid JSON object with NO markdown formatting, like this:
               multiline
             />
 
-            <TouchableOpacity 
-              style={[styles.sendButton, { backgroundColor: inputText.trim() ? Colors.sage : Colors.sand }]} 
+            <TouchableOpacity
+              style={[styles.sendButton, { backgroundColor: inputText.trim() ? Colors.sage : Colors.sand }]}
               onPress={sendMessage}
               disabled={!inputText.trim()}
             >
@@ -375,15 +487,16 @@ const styles = StyleSheet.create({
   breatheButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.sand,
-    paddingHorizontal: 16,
+    justifyContent: 'center',
+    backgroundColor: Colors.sage,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 16,
   },
   breatheText: {
-    color: Colors.sage,
+    color: Colors.surface,
     fontWeight: '500',
-    marginLeft: 6,
+    marginLeft: 4,
   },
   chatContainer: {
     padding: 24,
@@ -497,5 +610,56 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 40,
     elevation: 5,
-  }
+  },
+  cooldownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  cooldownCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 32,
+    padding: 36,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 10,
+    width: '100%',
+  },
+  cooldownEmoji: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  cooldownTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  cooldownBody: {
+    fontSize: 16,
+    fontWeight: '300',
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 28,
+  },
+  cooldownButton: {
+    backgroundColor: Colors.sage,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 24,
+    width: '100%',
+    alignItems: 'center',
+  },
+  cooldownButtonText: {
+    color: Colors.surface,
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });

@@ -91,6 +91,8 @@ CREATE POLICY "Users can view members of their groups" ON public.group_members F
 );
 DROP POLICY IF EXISTS "Users can insert themselves into a group" ON public.group_members;
 CREATE POLICY "Users can insert themselves into a group" ON public.group_members FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete themselves from a group" ON public.group_members;
+CREATE POLICY "Users can delete themselves from a group" ON public.group_members FOR DELETE USING (auth.uid() = user_id);
 
 -- Sessions
 DROP POLICY IF EXISTS "Users can view sessions for their groups" ON public.mediation_sessions;

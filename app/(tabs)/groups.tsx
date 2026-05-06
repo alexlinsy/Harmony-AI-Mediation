@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/AuthContext';
@@ -10,11 +11,12 @@ type Group = {
   id: string;
   name: string;
   invite_code: string;
+  created_by: string;
 };
 
 export default function GroupsScreen() {
   const { user } = useAuth();
-  const { setActiveGroup } = useGroup();
+  const { activeGroup, setActiveGroup } = useGroup();
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export default function GroupsScreen() {
     // Fetch groups where the current user is a member
     const { data, error } = await supabase
       .from('groups')
-      .select('id, name, invite_code, group_members!inner(user_id)')
+      .select('id, name, invite_code, created_by, group_members!inner(user_id)')
       .eq('group_members.user_id', user?.id);
 
     if (error) {
@@ -117,10 +119,57 @@ export default function GroupsScreen() {
     router.replace('/'); // Navigate to Mediator (index.tsx)
   };
 
+  const handleDeleteGroup = (group: Group) => {
+    const isCreator = user?.id === group.created_by;
+    const title = isCreator ? "Delete Group" : "Leave Group";
+    const message = isCreator 
+      ? `Are you sure you want to permanently delete "${group.name}" and all its data?`
+      : `Are you sure you want to leave "${group.name}"?`;
+    const actionText = isCreator ? "Delete" : "Leave";
+
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: actionText, 
+          style: "destructive",
+          onPress: async () => {
+            let error;
+            if (isCreator) {
+              const res = await supabase
+                .from('groups')
+                .delete()
+                .eq('id', group.id);
+              error = res.error;
+            } else {
+              const res = await supabase
+                .from('group_members')
+                .delete()
+                .eq('group_id', group.id)
+                .eq('user_id', user?.id);
+              error = res.error;
+            }
+
+            if (error) {
+              Alert.alert('Error', error.message);
+            } else {
+              if (activeGroup?.id === group.id) {
+                setActiveGroup(null);
+              }
+              fetchGroups();
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView contentContainerStyle={{ padding: 32, paddingTop: 80, paddingBottom: 120 }}>
-        <Text style={{ color: Colors.text, fontSize: 36, fontWeight: '200', marginBottom: 8, letterSpacing: 1 }}>
+        <Text style={{ color: Colors.text, fontSize: 36, fontWeight: '500', marginBottom: 8, letterSpacing: 0.5 }}>
           Your Groups
         </Text>
         <Text style={{ color: Colors.textMuted, marginBottom: 32, fontWeight: '300', fontSize: 16 }}>
@@ -138,7 +187,7 @@ export default function GroupsScreen() {
             style={[styles.actionButton, { backgroundColor: Colors.surface, flex: 1, marginLeft: 8 }]}
             onPress={() => { setIsJoining(true); setIsCreating(false); }}
           >
-            <Text style={{ color: Colors.indigo, textAlign: 'center', fontWeight: '500' }}>Join Group</Text>
+            <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500' }}>Join Group</Text>
           </TouchableOpacity>
         </View>
 
@@ -178,7 +227,7 @@ export default function GroupsScreen() {
               <TouchableOpacity onPress={() => setIsJoining(false)} style={{ padding: 12 }}>
                 <Text style={{ color: Colors.textMuted }}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleJoinGroup} style={[styles.primaryButton, { backgroundColor: Colors.indigo, marginLeft: 16 }]}>
+              <TouchableOpacity onPress={handleJoinGroup} style={[styles.primaryButton, { backgroundColor: Colors.sage, marginLeft: 16 }]}>
                 <Text style={{ color: Colors.surface, fontWeight: '500' }}>Join</Text>
               </TouchableOpacity>
             </View>
@@ -191,12 +240,21 @@ export default function GroupsScreen() {
           groups.map(group => (
             <TouchableOpacity 
               key={group.id} 
-              style={[styles.groupCard, { backgroundColor: Colors.surface }]}
+              style={[styles.groupCard, { backgroundColor: Colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
               onPress={() => selectGroup(group)}
               activeOpacity={0.8}
             >
-              <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '400', marginBottom: 4 }}>{group.name}</Text>
-              <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300' }}>Invite Code: {group.invite_code}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '400', marginBottom: 4 }}>{group.name}</Text>
+                <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300' }}>Invite Code: {group.invite_code}</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => handleDeleteGroup(group)}
+                style={{ padding: 12, marginLeft: 8 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="trash-outline" size={24} color={Colors.sage} />
+              </TouchableOpacity>
             </TouchableOpacity>
           ))
         )}
