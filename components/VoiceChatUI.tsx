@@ -4,6 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Eas
 import { Colors } from '@/constants/Colors';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Audio } from 'expo-av';
+import { useLanguage } from '@/lib/LanguageContext';
 
 interface VoiceChatUIProps {
   visible: boolean;
@@ -12,6 +13,7 @@ interface VoiceChatUIProps {
 }
 
 export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceChatUIProps) {
+  const { t } = useLanguage();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
 
@@ -76,7 +78,7 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
           allowsRecordingIOS: true,
           playsInSilentModeIOS: true,
         });
-        
+
         const { recording: newRecording } = await Audio.Recording.createAsync(
           Audio.RecordingOptionsPresets.HIGH_QUALITY
         );
@@ -122,7 +124,6 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
 
   const handleClose = () => {
     if (isRecording) {
-      // Just stop, don't send
       recording?.stopAndUnloadAsync().catch(() => {});
       setIsRecording(false);
       setRecording(null);
@@ -148,7 +149,7 @@ export default function VoiceChatUI({ visible, onClose, onProcessAudio }: VoiceC
 
         <View style={{ alignItems: 'center', marginBottom: 80 }}>
           <Text style={styles.statusText}>
-            {isRecording ? "Listening... Tap to send" : "Tap the microphone to speak"}
+            {isRecording ? t('voiceChat.listening') : t('voiceChat.tapToSpeak')}
           </Text>
         </View>
       </View>

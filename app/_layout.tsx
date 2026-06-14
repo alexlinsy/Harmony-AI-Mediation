@@ -6,6 +6,8 @@ import '../global.css';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { GroupProvider } from '@/lib/GroupContext';
+import { LanguageProvider } from '@/lib/LanguageContext';
+import { NotificationsProvider } from '@/lib/NotificationsContext';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -22,12 +24,12 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === 'login';
+    const inAuthGroup = segments[0] === 'login' || segments[0] === 'register';
 
     if (!session && !inAuthGroup) {
       router.replace('/login');
     } else if (session && inAuthGroup) {
-      router.replace('/(tabs)/groups'); // Route directly to groups tab on login
+      router.replace('/(tabs)/groups');
     }
   }, [session, isLoading, segments]);
 
@@ -36,6 +38,7 @@ function RootLayoutNav() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
+        <Stack.Screen name="register" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="breathe" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         <Stack.Screen name="archives/index" options={{ headerShown: false }} />
@@ -51,7 +54,11 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <GroupProvider>
-        <RootLayoutNav />
+        <LanguageProvider>
+          <NotificationsProvider>
+            <RootLayoutNav />
+          </NotificationsProvider>
+        </LanguageProvider>
       </GroupProvider>
     </AuthProvider>
   );

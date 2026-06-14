@@ -5,8 +5,11 @@ import { View } from 'react-native';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/Colors';
+import { useLanguage } from '@/lib/LanguageContext';
 
 export default function TabLayout() {
+  const { t } = useLanguage();
+
   return (
     <Tabs
       screenOptions={{
@@ -28,38 +31,38 @@ export default function TabLayout() {
           right: 32,
           borderRadius: 32,
           height: 64,
-          paddingBottom: 0, // override default padding
+          paddingBottom: 0,
         },
         tabBarItemStyle: {
           paddingVertical: 10,
         },
-        tabBarShowLabel: false, // minimalist approach
+        tabBarShowLabel: false,
       }}>
       <Tabs.Screen
         name="groups"
         options={{
-          title: 'Groups',
+          title: t('tabs.groups'),
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.2.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Mediator',
+          title: t('tabs.mediator'),
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="leaf.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Insights',
+          title: t('tabs.insights'),
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="chart.bar.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Sanctuary',
+          title: t('tabs.sanctuary'),
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.fill" color={color} />,
         }}
       />

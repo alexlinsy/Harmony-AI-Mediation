@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useLanguage } from '@/lib/LanguageContext';
 
 type ArchiveGroup = {
   name: string;
@@ -13,8 +14,9 @@ type ArchiveGroup = {
 
 export default function ArchivesScreen() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
-  
+
   const [loading, setLoading] = useState(true);
   const [groupedArchives, setGroupedArchives] = useState<ArchiveGroup[]>([]);
 
@@ -32,9 +34,9 @@ export default function ArchivesScreen() {
         .from('group_members')
         .select('group_id, groups(name)')
         .eq('user_id', user?.id);
-      
+
       const groupIds = userGroups?.map(g => g.group_id) || [];
-      
+
       if (groupIds.length > 0) {
         // 2. Fetch completed sessions for these groups
         const { data: sessions } = await supabase
@@ -47,13 +49,14 @@ export default function ArchivesScreen() {
             groups (name)
           `)
           .in('group_id', groupIds)
-          .eq('status', 'completed')
+          .in('status', ['completed', 'resolved'])
           .order('created_at', { ascending: false });
-        
+
         // 3. Group by group name
         const groupsMap: { [key: string]: any[] } = {};
         sessions?.forEach(session => {
-          const groupName = session.groups?.name || 'Unknown Group';
+          const groupsData = session.groups as unknown as { name: string } | undefined;
+          const groupName = groupsData?.name || t('archives.unknownGroup');
           if (!groupsMap[groupName]) groupsMap[groupName] = [];
           groupsMap[groupName].push(session);
         });
@@ -77,17 +80,17 @@ export default function ArchivesScreen() {
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 100 }}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <IconSymbol name="chevron.left" size={24} color={Colors.text} />
-          <Text style={styles.backText}>Sanctuary</Text>
+          <Text style={styles.backText}>{t('archives.backToSanctuary')}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>The Archives</Text>
+        <Text style={styles.title}>{t('archives.title')}</Text>
 
         {loading ? (
           <ActivityIndicator size="large" color={Colors.sage} style={{ marginTop: 40 }} />
         ) : groupedArchives.length === 0 ? (
           <View style={styles.emptyContainer}>
             <IconSymbol name="archivebox" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyText}>Your archives are currently empty. Complete a mediation to see it here.</Text>
+            <Text style={styles.emptyText}>{t('archives.empty')}</Text>
           </View>
         ) : (
           groupedArchives.map((group, index) => (
@@ -96,16 +99,16 @@ export default function ArchivesScreen() {
                 <IconSymbol name="person.2.fill" size={18} color={Colors.sage} />
                 <Text style={styles.groupName}>{group.name}</Text>
               </View>
-              
+
               {group.sessions.map((session) => (
-                <TouchableOpacity 
-                  key={session.id} 
+                <TouchableOpacity
+                  key={session.id}
                   style={styles.sessionItem}
                   onPress={() => router.push(`/archives/${session.id}`)}
                 >
                   <View style={styles.sessionContent}>
                     <Text style={styles.sessionTitle}>
-                      {new Date(session.created_at).toLocaleDateString()} • {session.category || 'Conflict'}
+                      {new Date(session.created_at).toLocaleDateString()} • {session.category || t('archives.conflict')}
                     </Text>
                     <IconSymbol name="chevron.right" size={16} color={Colors.textMuted} />
                   </View>

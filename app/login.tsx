@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StyleSheet, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,24 +25,12 @@ export default function LoginScreen() {
     setLoading(false);
   }
 
-  async function signUpWithEmail() {
-    if (!email || !password) {
-      Alert.alert('Validation Error', 'Please enter both email and password to create an account.');
-      return;
-    }
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email: email,
-      password: password,
-    });
-
-    if (error) Alert.alert('Error', error.message);
-    else Alert.alert('Success', 'Check your email for the login link or log in now if auto-confirm is enabled.');
-    setLoading(false);
-  }
+  const navigateToRegister = () => {
+    router.replace('/register');
+  };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', padding: 32 }}
     >
@@ -74,7 +64,7 @@ export default function LoginScreen() {
           <ActivityIndicator size="large" color={Colors.sage} style={{ marginVertical: 20 }} />
         ) : (
           <>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.button, { backgroundColor: Colors.sage, marginBottom: 16 }]}
               onPress={signInWithEmail}
               activeOpacity={0.8}
@@ -84,13 +74,14 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.buttonOutline, { borderColor: Colors.sage }]}
-              onPress={signUpWithEmail}
+            <TouchableOpacity
+              onPress={navigateToRegister}
               activeOpacity={0.8}
+              style={{ marginTop: 8 }}
             >
-              <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500', fontSize: 18 }}>
-                Create Account
+              <Text style={{ color: Colors.textMuted, textAlign: 'center', fontWeight: '300', fontSize: 15 }}>
+                Don&apos;t have an account?{' '}
+                <Text style={{ color: Colors.sage, fontWeight: '500' }}>Register</Text>
               </Text>
             </TouchableOpacity>
           </>
@@ -131,5 +122,5 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 32,
     borderWidth: 1,
-  }
+  },
 });

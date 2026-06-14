@@ -4,11 +4,15 @@ import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useAuth } from '@/lib/AuthContext';
+import { useLanguage } from '@/lib/LanguageContext';
 
 export default function ArchiveDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  
+  const { user } = useAuth();
+  const { t } = useLanguage();
+
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<any>(null);
 
@@ -26,7 +30,7 @@ export default function ArchiveDetailScreen() {
         .select('*, groups(name)')
         .eq('id', id)
         .single();
-      
+
       setSession(data);
     } catch (error) {
       console.error('Error fetching session detail:', error);
@@ -46,9 +50,9 @@ export default function ArchiveDetailScreen() {
   if (!session) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Record not found.</Text>
+        <Text style={styles.errorText}>{t('archiveDetail.notFound')}</Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ color: Colors.sage, marginTop: 12 }}>Go Back</Text>
+          <Text style={{ color: Colors.sage, marginTop: 12 }}>{t('common.goBack')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -59,7 +63,7 @@ export default function ArchiveDetailScreen() {
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 100 }}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <IconSymbol name="chevron.left" size={24} color={Colors.text} />
-          <Text style={styles.backText}>Archives</Text>
+          <Text style={styles.backText}>{t('archiveDetail.backToArchives')}</Text>
         </TouchableOpacity>
 
         <View style={styles.header}>
@@ -68,14 +72,14 @@ export default function ArchiveDetailScreen() {
         </View>
 
         <View style={styles.resultCard}>
-          <Text style={styles.sectionLabel}>Arbitration Result</Text>
+          <Text style={styles.sectionLabel}>{t('archiveDetail.arbitrationResult')}</Text>
           <Text style={styles.resultText}>{session.result_content}</Text>
         </View>
 
-        {session.action_memo && (
+        {session.action_memos && session.action_memos[user?.id || ''] && (
           <View style={styles.memoCard}>
-            <Text style={styles.memoTitle}>Action Memo 📝</Text>
-            <Text style={styles.memoText}>{session.action_memo}</Text>
+            <Text style={styles.memoTitle}>{t('archiveDetail.actionMemo')}</Text>
+            <Text style={styles.memoText}>{session.action_memos[user?.id || '']}</Text>
           </View>
         )}
       </ScrollView>

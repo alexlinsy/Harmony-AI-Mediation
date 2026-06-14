@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useLanguage } from '@/lib/LanguageContext';
 
 type Message = {
   id: string;
@@ -20,6 +21,7 @@ type Message = {
 export default function ChatMediatorScreen() {
   const { user } = useAuth();
   const { activeGroup } = useGroup();
+  const { t, locale } = useLanguage();
   const router = useRouter();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -28,94 +30,197 @@ export default function ChatMediatorScreen() {
   const [chatSession, setChatSession] = useState<any>(null);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<string>('waiting');
+  const [sessionConfirmations, setSessionConfirmations] = useState<string[]>([]);
   const [hasSubmittedSummary, setHasSubmittedSummary] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [groupMemberCount, setGroupMemberCount] = useState(0);
   const [sessionInputs, setSessionInputs] = useState<any[]>([]);
+  const nudgeDetectedRef = useRef(false);
 
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [isCooldownVisible, setIsCooldownVisible] = useState(false);
   const cooldownCountdownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const subscribedGroupRef = useRef<string | null>(null);
 
   // Initialize Chat & Session
   useEffect(() => {
-    if (activeGroup) {
-      initializeSession();
+    if (!activeGroup) return;
+    const groupId = activeGroup.id;
 
-      // Subscribe to real-time updates for inputs in this group's active session
-      const channel = supabase.channel('session_updates')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'session_inputs' },
-          () => {
-            fetchSessionInputs(); // Re-fetch to check if everyone is done
+    // Skip if already subscribed to this group
+    if (subscribedGroupRef.current === groupId) return;
+
+    initializeSession();
+
+    const channel = supabase.channel(`session_updates_${groupId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'session_inputs' },
+        async () => {
+          try {
+            const sid = activeSessionIdRef.current;
+            await fetchSessionInputs(sid);
+            const { data: session } = await supabase
+              .from('mediation_sessions')
+              .select('status')
+              .eq('id', sid)
+              .single();
+            if (session?.status === 'ready') {
+              setSessionStatus('ready');
+            }
+          } catch (err) {
+            console.error('Realtime session_inputs handler error:', err);
           }
-        )
-        .subscribe();
+        }
+      )
+      .on(
+              'postgres_changes',
+              { event: 'UPDATE', schema: 'public', table: 'mediation_sessions' },
+              (payload) => {
+                if (payload.new.group_id === activeGroup.id) {
+                  const newStatus = payload.new.status as string;
+                  const newNudgedBy = payload.new.nudged_by as string | null;
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
+                  setSessionStatus(newStatus);
+                  setSessionConfirmations(payload.new.confirmations ?? []);
+
+                  if (newNudgedBy && newNudgedBy !== user?.id) {
+                    nudgeDetectedRef.current = true;
+                  }
+
+                  if (newStatus === 'resolved') {
+                    initializeSession();
+                  }
+                }
+              }
+            )
+            .subscribe();
+
+    channelRef.current = channel;
+    subscribedGroupRef.current = groupId;
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+      subscribedGroupRef.current = null;
+    };
   }, [activeGroup]);
 
-  // Initialize TTS voice settings
   useEffect(() => {
-    // Note: expo-speech in Expo Go cannot guarantee speaker routing on iOS.
-    // Volume/routing is controlled by iOS hardware after recording.
   }, []);
 
+  useEffect(() => {
+    if (sessionStatus === 'ready') {
+      router.push('/mediation');
+    }
+  }, [sessionStatus, router]);
+
   async function initializeSession() {
-    // Reset all session state when switching groups
+    try {
     setMessages([]);
     setHasSubmittedSummary(false);
     setIsGeneratingSummary(false);
     setSessionInputs([]);
     setChatSession(null);
+    nudgeDetectedRef.current = false;
 
-    // 1. Get group member count
     const { count } = await supabase
       .from('group_members')
       .select('*', { count: 'exact', head: true })
       .eq('group_id', activeGroup!.id);
     setGroupMemberCount(count || 0);
 
-    // 2. Get or create Supabase Session
-    let { data: sessionData } = await supabase
+    let { data: sessionData, error: sessionError } = await supabase
       .from('mediation_sessions')
-      .select('id, status')
+      .select('id, status, confirmations')
       .eq('group_id', activeGroup!.id)
-      .neq('status', 'completed')
+      .neq('status', 'resolved')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
+
+    if (sessionError?.code === '42703') {
+      console.warn('confirmations column missing in DB, retrying select without it');
+      const retry = await supabase
+        .from('mediation_sessions')
+        .select('id, status')
+        .eq('group_id', activeGroup!.id)
+        .neq('status', 'resolved')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      sessionData = retry.data as any;
+      sessionError = retry.error;
+    } else if (sessionError) {
+      console.error('Session fetch error:', sessionError);
+    }
 
     if (!sessionData) {
-      const { data: newSession } = await supabase
+      const { data: newSession, error: insertError } = await supabase
         .from('mediation_sessions')
         .insert({ group_id: activeGroup!.id })
         .select('id, status')
         .single();
-      sessionData = newSession;
+
+      if (insertError) {
+        console.warn('Insert failed (likely race), retrying select:', insertError.message);
+        const retry = await supabase
+          .from('mediation_sessions')
+          .select('id, status, confirmations')
+          .eq('group_id', activeGroup!.id)
+          .neq('status', 'resolved')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        sessionData = retry.data as any;
+      } else {
+        sessionData = newSession as any;
+      }
     }
     setActiveSessionId(sessionData?.id || null);
+      activeSessionIdRef.current = sessionData?.id || null;
+    setSessionStatus(sessionData?.status || 'waiting');
+    setSessionConfirmations((sessionData as any)?.confirmations ?? []);
 
-    // 3. Initialize Gemini Chat
-    const model = getTherapistModel();
-    const initialGreeting = "Welcome to this safe space. Take a deep breath. I'm here to listen without judgment. What's been troubling you recently?";
+    const model = getTherapistModel(locale);
+
+    const greetings: Record<string, { user: string; model: string }> = {
+      'zh-Hant': {
+        user: '你好，我需要一些情緒支持。',
+        model: '歡迎來到這個安全的空間。深呼吸一下。我會不帶批判地傾聽。最近有什麼困擾你的事情嗎？',
+      },
+      'zh-Hans': {
+        user: '你好，我需要一些情绪支持。',
+        model: '欢迎来到这个安全的空间。深呼吸一下。我会不带批判地倾听。最近有什么困扰你的事情吗？',
+      },
+    };
+    const greeting = greetings[locale] || {
+      user: "Hello, I need some emotional support.",
+      model: "Welcome to this safe space. Take a deep breath. I'm here to listen without judgment. What's been troubling you recently?",
+    };
+
     const chat = model.startChat({
       history: [
-        { role: 'user', parts: [{ text: "Hello, I need some emotional support." }] },
-        { role: 'model', parts: [{ text: initialGreeting }] }
+        { role: 'user', parts: [{ text: greeting.user }] },
+        { role: 'model', parts: [{ text: greeting.model }] }
       ]
     });
     setChatSession(chat);
-    setMessages([{ id: 'init', role: 'model', text: initialGreeting }]);
+    setMessages([{ id: 'init', role: 'model', text: greeting.model }]);
 
-    // 4. Check if current user already submitted a summary for this session
     fetchSessionInputs(sessionData?.id);
+    } catch (error) {
+      console.error('Session initialization failed:', error);
+      Alert.alert(
+        t('chat.sessionUnavailable'),
+        t('chat.sessionRetry')
+      );
+    }
   }
 
   async function fetchSessionInputs(sessionId: string | null = activeSessionId) {
@@ -132,9 +237,8 @@ export default function ChatMediatorScreen() {
     }
   }
 
-  // Detect if text is predominantly Chinese
   const isChinese = (text: string): boolean => {
-    const chineseChars = text.match(/[\u4e00-\u9fff]/g) || [];
+    const chineseChars = text.match(/[一-鿿]/g) || [];
     return chineseChars.length > text.length * 0.2;
   };
 
@@ -147,10 +251,9 @@ export default function ChatMediatorScreen() {
     }
   };
 
-  // Analyze emotional intensity and trigger cooldown if too extreme
   const analyzeAndTriggerCooldown = async (userText: string): Promise<boolean> => {
     try {
-      const model = getTherapistModel();
+      const model = getTherapistModel(locale);
       const tempChat = model.startChat();
       const prompt = `You are an emotional safety monitor. Analyze the following message for signs of extreme emotional distress, rage, panic, or crisis.
 Respond ONLY with a raw JSON object, no markdown:
@@ -205,7 +308,6 @@ Message: "${userText}"`;
     Keyboard.dismiss();
 
     try {
-      // Check emotional intensity first
       const shouldCooldown = await analyzeAndTriggerCooldown(userText);
       if (shouldCooldown) {
         triggerCooldown(isChinese(userText) ? 'zh' : 'en');
@@ -221,7 +323,7 @@ Message: "${userText}"`;
       speakText(responseText);
     } catch (error) {
       console.error("Chat Error:", error);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "I'm sorry, I encountered an issue processing that. Please take a deep breath and try again." }]);
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: t('chat.errorGeneric') }]);
     } finally {
       setIsTyping(false);
     }
@@ -251,7 +353,6 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
       const cleanJson = jsonText.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
 
-      // Check if transcript shows extreme emotion
       const shouldCooldown = await analyzeAndTriggerCooldown(parsed.transcript);
       if (shouldCooldown) {
         triggerCooldown(isChinese(parsed.transcript) ? 'zh' : 'en');
@@ -266,34 +367,64 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
 
     } catch (error) {
       console.error("Audio processing error:", error);
-      Alert.alert("Error", "Could not process audio. Please try again.");
+      Alert.alert(t('common.error'), t('chat.audioError'));
     } finally {
       setIsTyping(false);
     }
   };
 
   const handleSubmitMediation = async () => {
-    if (!chatSession || !activeSessionId || messages.length <= 1) return;
+    if (!activeSessionId) {
+      Alert.alert(t('chat.sessionUnavailable'), t('chat.sessionBusy'));
+      return;
+    }
+    if (!chatSession) {
+      Alert.alert(t('chat.sessionUnavailable'), t('chat.aiInitializing'));
+      return;
+    }
+    if (messages.length <= 1) {
+      Alert.alert(t('chat.notReady'), t('chat.needMoreFeelings'));
+      return;
+    }
     setIsGeneratingSummary(true);
 
     try {
-      // 1. Ask AI to summarize the entire conversation
       const summaryPrompt = "Please summarize the user's core grievance, the facts, and their underlying feelings from our conversation into a clear, single paragraph using Non-Violent Communication principles. Do not address the user directly, just output the summary.";
       const result = await chatSession.sendMessage(summaryPrompt);
       const summaryText = result.response.text();
 
-      // 2. Save the summary to Supabase
-      await supabase.from('session_inputs').insert({
+      const { error: insertError } = await supabase.from('session_inputs').insert({
         session_id: activeSessionId,
         user_id: user?.id,
         content: summaryText,
         input_type: 'text'
       });
 
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        Alert.alert(t('common.error'), t('chat.summaryError'));
+        return;
+      }
+
       setHasSubmittedSummary(true);
-      fetchSessionInputs();
+
+      const { data: inputs } = await supabase
+        .from('session_inputs')
+        .select('*')
+        .eq('session_id', activeSessionId);
+
+      setSessionInputs(inputs || []);
+
+      if ((inputs?.length || 0) >= groupMemberCount && groupMemberCount > 1) {
+        await supabase
+          .from('mediation_sessions')
+          .update({ status: 'ready' })
+          .eq('id', activeSessionId);
+        setSessionStatus('ready');
+      }
     } catch (error) {
       console.error("Error generating summary:", error);
+      Alert.alert(t('common.error'), t('chat.summaryGenericError'));
     } finally {
       setIsGeneratingSummary(false);
     }
@@ -309,20 +440,69 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
 
   const isReadyForMediation = sessionInputs.length >= groupMemberCount && groupMemberCount > 1;
 
-  const handleStartMediationClick = () => {
+  const handleStartMediationClick = async () => {
     if (isReadyForMediation) {
       router.push('/mediation');
-    } else {
-      Alert.alert("Waiting for Partner", "A notification has been sent reminding them to share their version of the conflict.");
+    } else if (activeSessionIdRef.current) {
+      const { error } = await supabase
+        .from('mediation_sessions')
+        .update({ nudged_by: user?.id })
+        .eq('id', activeSessionIdRef.current);
+
+      if (error) {
+        console.error('Failed to send nudge:', error);
+      }
+
+      Alert.alert(
+        t('chat.nudgeSent'),
+        t('chat.nudgeSentMsg')
+      );
+    }
+  };
+
+  const handleConfirmResolution = async () => {
+    if (!activeSessionId || !user) return;
+    try {
+      const newConfirmations = [...new Set([...sessionConfirmations, user.id])];
+
+      const isNowResolved = newConfirmations.length >= groupMemberCount;
+      const newStatus = isNowResolved ? 'resolved' : 'completed';
+
+      const { error: updateError } = await supabase
+        .from('mediation_sessions')
+        .update({
+           confirmations: newConfirmations,
+           status: newStatus
+        })
+        .eq('id', activeSessionId);
+
+      if (updateError) {
+        if (updateError.code === '42703') {
+          console.warn('confirmations column missing, retrying update without it');
+          await supabase
+            .from('mediation_sessions')
+            .update({ status: newStatus })
+            .eq('id', activeSessionId);
+        } else {
+          console.error('Confirm resolution error:', updateError);
+          return;
+        }
+      }
+
+      if (isNowResolved) {
+         Alert.alert(t('chat.harmonyRestored'), t('chat.peacePoints'));
+      }
+    } catch (error) {
+      console.error('Confirm resolution failed:', error);
     }
   };
 
   if (!activeGroup) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
-        <Text style={{ color: Colors.text, fontSize: 24, fontWeight: '300', marginBottom: 16 }}>No Group Selected</Text>
+        <Text style={{ color: Colors.text, fontSize: 24, fontWeight: '300', marginBottom: 16 }}>{t('chat.noGroupTitle')}</Text>
         <TouchableOpacity style={[styles.primaryButton, { backgroundColor: Colors.sage }]} onPress={() => router.replace('/')}>
-          <Text style={{ color: Colors.surface, fontWeight: '500' }}>Go to Groups</Text>
+          <Text style={{ color: Colors.surface, fontWeight: '500' }}>{t('chat.noGroupAction')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -347,15 +527,15 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
         <View style={styles.cooldownOverlay}>
           <View style={styles.cooldownCard}>
             <Text style={styles.cooldownEmoji}>🌊</Text>
-            <Text style={styles.cooldownTitle}>Let's Pause for a Moment</Text>
+            <Text style={styles.cooldownTitle}>{t('chat.cooldownTitle')}</Text>
             <Text style={styles.cooldownBody}>
-              I can sense you're feeling very overwhelmed right now. That's completely okay. Before we continue, let's take a few deep breaths together to help calm your mind and body.
+              {t('chat.cooldownBody')}
             </Text>
             <TouchableOpacity style={styles.cooldownButton} onPress={handleCooldownComplete}>
-              <Text style={styles.cooldownButtonText}>Start Breathing Exercise 🌬️</Text>
+              <Text style={styles.cooldownButtonText}>{t('chat.cooldownButton')}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setIsCooldownVisible(false)} style={{ marginTop: 16 }}>
-              <Text style={{ color: Colors.textMuted, fontSize: 14 }}>I'm okay, continue</Text>
+              <Text style={{ color: Colors.textMuted, fontSize: 14 }}>{t('chat.cooldownContinue')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -372,17 +552,17 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle} numberOfLines={1}>{activeGroup.name}</Text>
-          <Text style={styles.headerSubtitle}>Therapy Session</Text>
+          <Text style={styles.headerSubtitle}>{t('chat.sessionSubtitle')}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <TouchableOpacity style={[styles.breatheButton, { width: 110 }]} onPress={navigateToBreathe}>
             <IconSymbol name="wind" size={16} color={Colors.surface} />
-            <Text style={styles.breatheText}>Breathe</Text>
+            <Text style={styles.breatheText}>{t('chat.breathe')}</Text>
           </TouchableOpacity>
           {hasSubmittedSummary && (
             <TouchableOpacity style={[styles.breatheButton, { width: 110 }]} onPress={handleStartMediationClick}>
               <IconSymbol name="play.fill" size={16} color={Colors.surface} />
-              <Text style={[styles.breatheText, { fontSize: 13, marginLeft: 6 }]}>Mediation</Text>
+              <Text style={[styles.breatheText, { fontSize: 13, marginLeft: 6 }]}>{t('chat.mediation')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -401,7 +581,7 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
       {isTyping && (
         <View style={styles.typingIndicator}>
           <ActivityIndicator size="small" color={Colors.sage} />
-          <Text style={styles.typingText}>Harmony is typing...</Text>
+          <Text style={styles.typingText}>{t('chat.typing')}</Text>
         </View>
       )}
 
@@ -417,7 +597,7 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
               {isGeneratingSummary ? (
                 <ActivityIndicator size="small" color={Colors.sage} />
               ) : (
-                <Text style={styles.submitMediationText}>I'm ready for Group Mediation</Text>
+                <Text style={styles.submitMediationText}>{t('chat.submitReady')}</Text>
               )}
             </TouchableOpacity>
           )}
@@ -429,7 +609,7 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
 
             <TextInput
               style={styles.textInput}
-              placeholder="Share your feelings..."
+              placeholder={t('chat.placeholder')}
               placeholderTextColor={Colors.textMuted}
               value={inputText}
               onChangeText={setInputText}
@@ -445,10 +625,22 @@ Output JSON ONLY: { "transcript": "...", "response": "..." }`;
             </TouchableOpacity>
           </View>
         </View>
+      ) : sessionStatus === 'completed' ? (
+        <View style={{ padding: 24, paddingBottom: Platform.OS === 'ios' ? 110 : 80, alignItems: 'center' }}>
+          {sessionConfirmations.includes(user?.id || '') ? (
+             <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300', textAlign: 'center' }}>
+               {t('chat.waitingConfirm')}
+             </Text>
+          ) : (
+             <TouchableOpacity style={[styles.primaryButton, { backgroundColor: Colors.sage, width: '100%', alignItems: 'center' }]} onPress={handleConfirmResolution}>
+                <Text style={{ color: Colors.surface, fontSize: 16, fontWeight: '600' }}>{t('chat.confirmResolution')}</Text>
+             </TouchableOpacity>
+          )}
+        </View>
       ) : (
         <View style={{ padding: 24, paddingBottom: Platform.OS === 'ios' ? 110 : 80, alignItems: 'center' }}>
           <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300' }}>
-            Input disabled. Waiting for others to complete their sessions.
+            {t('chat.inputDisabled')}
           </Text>
         </View>
       )}

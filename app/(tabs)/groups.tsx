@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/AuthContext';
 import { useGroup } from '@/lib/GroupContext';
 import { useRouter } from 'expo-router';
+import { useLanguage } from '@/lib/LanguageContext';
 
 type Group = {
   id: string;
@@ -17,6 +18,7 @@ type Group = {
 export default function GroupsScreen() {
   const { user } = useAuth();
   const { activeGroup, setActiveGroup } = useGroup();
+  const { t } = useLanguage();
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,6 @@ export default function GroupsScreen() {
 
   async function fetchGroups() {
     setLoading(true);
-    // Fetch groups where the current user is a member
     const { data, error } = await supabase
       .from('groups')
       .select('id, name, invite_code, created_by, group_members!inner(user_id)')
@@ -54,28 +55,26 @@ export default function GroupsScreen() {
   };
 
   async function handleCreateGroup() {
-    if (!newGroupName.trim()) return Alert.alert('Enter a group name');
-    
+    if (!newGroupName.trim()) return Alert.alert(t('common.error'), t('groups.enterGroupName'));
+
     const code = generateInviteCode();
-    
-    // 1. Create Group
+
     const { data: groupData, error: groupError } = await supabase
       .from('groups')
       .insert({ name: newGroupName, invite_code: code, created_by: user?.id })
       .select()
       .single();
 
-    if (groupError) return Alert.alert('Error', groupError.message);
+    if (groupError) return Alert.alert(t('common.error'), groupError.message);
 
-    // 2. Add current user as member
     if (groupData) {
       const { error: memberError } = await supabase
         .from('group_members')
         .insert({ group_id: groupData.id, user_id: user?.id });
 
-      if (memberError) return Alert.alert('Error', memberError.message);
-      
-      Alert.alert('Group Created!', `Your invite code is: ${code}`);
+      if (memberError) return Alert.alert(t('common.error'), memberError.message);
+
+      Alert.alert(t('groups.groupCreated'), t('groups.inviteCodeMessage', { code }));
       setNewGroupName('');
       setIsCreating(false);
       fetchGroups();
@@ -83,32 +82,28 @@ export default function GroupsScreen() {
   }
 
   async function handleJoinGroup() {
-    if (!inviteCode.trim()) return Alert.alert('Enter an invite code');
+    if (!inviteCode.trim()) return Alert.alert(t('common.error'), t('groups.enterInviteCode'));
 
-    // 1. Find group by code
     const { data: groupData, error: groupError } = await supabase
-      .from('groups')
-      .select('id')
-      .eq('invite_code', inviteCode)
-      .single();
+      .rpc('lookup_group_by_invite_code', { p_invite_code: inviteCode });
 
-    if (groupError || !groupData) return Alert.alert('Error', 'Invalid invite code or group not found.');
+    if (groupError || !groupData || groupData.length === 0)
+      return Alert.alert(t('common.error'), t('groups.invalidCode'));
 
-    // 2. Join group
     const { error: memberError } = await supabase
       .from('group_members')
-      .insert({ group_id: groupData.id, user_id: user?.id });
+      .insert({ group_id: groupData[0].id, user_id: user?.id });
 
     if (memberError) {
-      if (memberError.code === '23505') { // Unique violation
-        Alert.alert('Notice', 'You are already in this group.');
+      if (memberError.code === '23505') {
+        Alert.alert(t('common.ok'), t('groups.alreadyInGroup'));
       } else {
-        Alert.alert('Error', memberError.message);
+        Alert.alert(t('common.error'), memberError.message);
       }
     } else {
-      Alert.alert('Success', 'You have joined the group!');
+      Alert.alert(t('common.ok'), t('groups.joinedSuccess'));
     }
-    
+
     setInviteCode('');
     setIsJoining(false);
     fetchGroups();
@@ -116,24 +111,24 @@ export default function GroupsScreen() {
 
   const selectGroup = (group: Group) => {
     setActiveGroup(group);
-    router.replace('/'); // Navigate to Mediator (index.tsx)
+    router.replace('/');
   };
 
   const handleDeleteGroup = (group: Group) => {
     const isCreator = user?.id === group.created_by;
-    const title = isCreator ? "Delete Group" : "Leave Group";
-    const message = isCreator 
-      ? `Are you sure you want to permanently delete "${group.name}" and all its data?`
-      : `Are you sure you want to leave "${group.name}"?`;
-    const actionText = isCreator ? "Delete" : "Leave";
+    const title = isCreator ? t('groups.deleteGroup') : t('groups.leaveGroup');
+    const message = isCreator
+      ? t('groups.deleteConfirm', { name: group.name })
+      : t('groups.leaveConfirm', { name: group.name });
+    const actionText = isCreator ? t('groups.delete') : t('groups.leave');
 
     Alert.alert(
       title,
       message,
       [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: actionText, 
+        { text: t('common.cancel'), style: "cancel" },
+        {
+          text: actionText,
           style: "destructive",
           onPress: async () => {
             let error;
@@ -153,7 +148,7 @@ export default function GroupsScreen() {
             }
 
             if (error) {
-              Alert.alert('Error', error.message);
+              Alert.alert(t('common.error'), error.message);
             } else {
               if (activeGroup?.id === group.id) {
                 setActiveGroup(null);
@@ -170,43 +165,43 @@ export default function GroupsScreen() {
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView contentContainerStyle={{ padding: 32, paddingTop: 80, paddingBottom: 120 }}>
         <Text style={{ color: Colors.text, fontSize: 36, fontWeight: '500', marginBottom: 8, letterSpacing: 0.5 }}>
-          Your Groups
+          {t('groups.title')}
         </Text>
         <Text style={{ color: Colors.textMuted, marginBottom: 32, fontWeight: '300', fontSize: 16 }}>
-          Select a space to begin mediation.
+          {t('groups.subtitle')}
         </Text>
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 }}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: Colors.surface, flex: 1, marginRight: 8 }]}
             onPress={() => { setIsCreating(true); setIsJoining(false); }}
           >
-            <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500' }}>+ Create Group</Text>
+            <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500' }}>{t('groups.createGroup')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: Colors.surface, flex: 1, marginLeft: 8 }]}
             onPress={() => { setIsJoining(true); setIsCreating(false); }}
           >
-            <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500' }}>Join Group</Text>
+            <Text style={{ color: Colors.sage, textAlign: 'center', fontWeight: '500' }}>{t('groups.joinGroup')}</Text>
           </TouchableOpacity>
         </View>
 
         {isCreating && (
           <View style={[styles.card, { backgroundColor: Colors.surface, marginBottom: 24 }]}>
-            <Text style={{ color: Colors.text, fontSize: 18, marginBottom: 16, fontWeight: '400' }}>Create a Safe Space</Text>
+            <Text style={{ color: Colors.text, fontSize: 18, marginBottom: 16, fontWeight: '400' }}>{t('groups.createTitle')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Group Name (e.g., Family)"
+              placeholder={t('groups.placeholderGroupName')}
               placeholderTextColor={Colors.textMuted}
               value={newGroupName}
               onChangeText={setNewGroupName}
             />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <TouchableOpacity onPress={() => setIsCreating(false)} style={{ padding: 12 }}>
-                <Text style={{ color: Colors.textMuted }}>Cancel</Text>
+                <Text style={{ color: Colors.textMuted }}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleCreateGroup} style={[styles.primaryButton, { backgroundColor: Colors.sage, marginLeft: 16 }]}>
-                <Text style={{ color: Colors.surface, fontWeight: '500' }}>Create</Text>
+                <Text style={{ color: Colors.surface, fontWeight: '500' }}>{t('groups.createGroup')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -214,10 +209,10 @@ export default function GroupsScreen() {
 
         {isJoining && (
           <View style={[styles.card, { backgroundColor: Colors.surface, marginBottom: 24 }]}>
-            <Text style={{ color: Colors.text, fontSize: 18, marginBottom: 16, fontWeight: '400' }}>Join a Group</Text>
+            <Text style={{ color: Colors.text, fontSize: 18, marginBottom: 16, fontWeight: '400' }}>{t('groups.joinGroup')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="6-Digit Invite Code"
+              placeholder={t('groups.placeholderInviteCode')}
               placeholderTextColor={Colors.textMuted}
               value={inviteCode}
               onChangeText={setInviteCode}
@@ -225,10 +220,10 @@ export default function GroupsScreen() {
             />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <TouchableOpacity onPress={() => setIsJoining(false)} style={{ padding: 12 }}>
-                <Text style={{ color: Colors.textMuted }}>Cancel</Text>
+                <Text style={{ color: Colors.textMuted }}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleJoinGroup} style={[styles.primaryButton, { backgroundColor: Colors.sage, marginLeft: 16 }]}>
-                <Text style={{ color: Colors.surface, fontWeight: '500' }}>Join</Text>
+                <Text style={{ color: Colors.surface, fontWeight: '500' }}>{t('groups.joinGroup')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -238,17 +233,17 @@ export default function GroupsScreen() {
           <ActivityIndicator size="large" color={Colors.sage} style={{ marginTop: 40 }} />
         ) : (
           groups.map(group => (
-            <TouchableOpacity 
-              key={group.id} 
+            <TouchableOpacity
+              key={group.id}
               style={[styles.groupCard, { backgroundColor: Colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
               onPress={() => selectGroup(group)}
               activeOpacity={0.8}
             >
               <View style={{ flex: 1 }}>
                 <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '400', marginBottom: 4 }}>{group.name}</Text>
-                <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300' }}>Invite Code: {group.invite_code}</Text>
+                <Text style={{ color: Colors.textMuted, fontSize: 14, fontWeight: '300' }}>{t('groups.inviteCodeLabel', { code: group.invite_code })}</Text>
               </View>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => handleDeleteGroup(group)}
                 style={{ padding: 12, marginLeft: 8 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -261,7 +256,7 @@ export default function GroupsScreen() {
 
         {!loading && groups.length === 0 && (
           <Text style={{ color: Colors.textMuted, textAlign: 'center', marginTop: 40, fontWeight: '300' }}>
-            You haven't joined any groups yet.
+            {t('groups.emptyState')}
           </Text>
         )}
 
