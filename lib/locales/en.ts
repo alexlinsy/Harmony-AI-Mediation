@@ -156,6 +156,23 @@ export const translations: Record<string, string> = {
   'explore.category.Other': 'Other',
   'explore.noData':
     'The Insights feature will be available once enough mediation data is collected to gently form a heatmap of your interactions.',
+  'explore.triggersTitle': 'Triggers Analysis',
+  'explore.triggersSubtitle': 'What sparks your conflicts',
+  'explore.noDataTriggers': 'More sessions needed for trigger analysis',
+  'explore.patternsTitle': 'Conflict Patterns',
+  'explore.patternsSubtitle': 'When conflicts tend to arise',
+  'explore.patternsInsight': 'Sunday evenings are your peak time. A pre-emptive breathing exercise may help.',
+  'explore.noDataPatterns': 'Complete more sessions to reveal your patterns',
+  'explore.harmonyTitle': 'Harmony Index',
+  'explore.harmonySubtitle': 'Your growth over time',
+  'explore.harmonyGrowth': 'Your harmony has grown {percent}% over the last 6 months',
+  'explore.days.sun': 'Sun',
+  'explore.days.mon': 'Mon',
+  'explore.days.tue': 'Tue',
+  'explore.days.wed': 'Wed',
+  'explore.days.thu': 'Thu',
+  'explore.days.fri': 'Fri',
+  'explore.days.sat': 'Sat',
 
   // Archives index
   'archives.title': 'The Archives',
@@ -170,6 +187,17 @@ export const translations: Record<string, string> = {
   'archiveDetail.arbitrationResult': 'Arbitration Result',
   'archiveDetail.actionMemo': 'Action Memo',
   'archiveDetail.notFound': 'Record not found.',
+
+  // Breathe screen
+  'breathe.title': 'Harmony Meditation',
+  'breathe.subtitle': 'Follow the circle to regulate your breathing.',
+  'breathe.phaseInhale': 'Breathe In',
+  'breathe.phaseHold': 'Hold',
+  'breathe.phaseExhale': 'Breathe Out',
+  'breathe.phaseInhaleShort': 'Inhale',
+  'breathe.phaseHoldShort': 'Hold',
+  'breathe.phaseExhaleShort': 'Exhale',
+  'breathe.endSession': 'End Session',
 
   // Voice Chat UI
   'voiceChat.listening': 'Listening... Tap to send',
