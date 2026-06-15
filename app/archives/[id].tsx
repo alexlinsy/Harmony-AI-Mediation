@@ -1,11 +1,54 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withDelay,
+  type WithSpringConfig,
+} from 'react-native-reanimated';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/lib/AuthContext';
 import { useLanguage } from '@/lib/LanguageContext';
+import ZenPressable from '@/components/ZenPressable';
+
+const SPRING_CONFIG: WithSpringConfig = {
+  mass: 0.5,
+  damping: 14,
+  stiffness: 180,
+};
+
+function AnimatedCard({
+  children,
+  delay,
+  style,
+}: {
+  children: React.ReactNode;
+  delay: number;
+  style?: any;
+}) {
+  const translateY = useSharedValue(24);
+  const opacity = useSharedValue(0);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  useEffect(() => {
+    translateY.value = withDelay(delay, withSpring(0, SPRING_CONFIG));
+    opacity.value = withDelay(delay, withSpring(1, SPRING_CONFIG));
+  }, []);
+
+  return (
+    <Animated.View style={[animatedStyle, style]}>
+      {children}
+    </Animated.View>
+  );
+}
 
 export default function ArchiveDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -51,9 +94,9 @@ export default function ArchiveDetailScreen() {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>{t('archiveDetail.notFound')}</Text>
-        <TouchableOpacity onPress={() => router.back()}>
+        <ZenPressable onPress={() => router.back()}>
           <Text style={{ color: Colors.sage, marginTop: 12 }}>{t('common.goBack')}</Text>
-        </TouchableOpacity>
+        </ZenPressable>
       </View>
     );
   }
@@ -61,26 +104,32 @@ export default function ArchiveDetailScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 100 }}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <IconSymbol name="chevron.left" size={24} color={Colors.text} />
-          <Text style={styles.backText}>{t('archiveDetail.backToArchives')}</Text>
-        </TouchableOpacity>
+        <AnimatedCard delay={0}>
+          <ZenPressable style={styles.backButton} onPress={() => router.back()}>
+            <IconSymbol name="chevron.left" size={24} color={Colors.text} />
+            <Text style={styles.backText}>{t('archiveDetail.backToArchives')}</Text>
+          </ZenPressable>
 
-        <View style={styles.header}>
-          <Text style={styles.groupName}>{session.groups?.name}</Text>
-          <Text style={styles.date}>{new Date(session.created_at).toLocaleDateString()} • {session.category}</Text>
-        </View>
+          <View style={styles.header}>
+            <Text style={styles.groupName}>{session.groups?.name}</Text>
+            <Text style={styles.date}>{new Date(session.created_at).toLocaleDateString()} • {session.category}</Text>
+          </View>
+        </AnimatedCard>
 
-        <View style={styles.resultCard}>
-          <Text style={styles.sectionLabel}>{t('archiveDetail.arbitrationResult')}</Text>
-          <Text style={styles.resultText}>{session.result_content}</Text>
-        </View>
+        <AnimatedCard delay={150}>
+          <View style={styles.resultCard}>
+            <Text style={styles.sectionLabel}>{t('archiveDetail.arbitrationResult')}</Text>
+            <Text style={styles.resultText}>{session.result_content}</Text>
+          </View>
+        </AnimatedCard>
 
         {session.action_memos && session.action_memos[user?.id || ''] && (
-          <View style={styles.memoCard}>
-            <Text style={styles.memoTitle}>{t('archiveDetail.actionMemo')}</Text>
-            <Text style={styles.memoText}>{session.action_memos[user?.id || '']}</Text>
-          </View>
+          <AnimatedCard delay={300}>
+            <View style={styles.memoCard}>
+              <Text style={styles.memoTitle}>{t('archiveDetail.actionMemo')}</Text>
+              <Text style={styles.memoText}>{session.action_memos[user?.id || '']}</Text>
+            </View>
+          </AnimatedCard>
         )}
       </ScrollView>
     </View>

@@ -41,8 +41,8 @@ function RootLayoutNav() {
         <Stack.Screen name="register" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="breathe" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
-        <Stack.Screen name="archives/index" options={{ headerShown: false }} />
-        <Stack.Screen name="archives/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="archives/index" options={{ headerShown: false, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="archives/[id]" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="mediation" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />

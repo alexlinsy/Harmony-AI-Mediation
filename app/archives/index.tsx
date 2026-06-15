@@ -1,16 +1,77 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withDelay,
+  type WithSpringConfig,
+} from 'react-native-reanimated';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/lib/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useLanguage } from '@/lib/LanguageContext';
+import ZenPressable from '@/components/ZenPressable';
+
+const SPRING_CONFIG: WithSpringConfig = {
+  mass: 0.5,
+  damping: 14,
+  stiffness: 180,
+};
 
 type ArchiveGroup = {
   name: string;
   sessions: any[];
 };
+
+function AnimatedSessionItem({
+  session,
+  index,
+  onPress,
+  conflictLabel,
+}: {
+  session: any;
+  index: number;
+  onPress: () => void;
+  conflictLabel: string;
+}) {
+  const translateY = useSharedValue(20);
+  const opacity = useSharedValue(0);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  useEffect(() => {
+    translateY.value = withDelay(
+      index * 80,
+      withSpring(0, SPRING_CONFIG)
+    );
+    opacity.value = withDelay(
+      index * 80,
+      withSpring(1, SPRING_CONFIG)
+    );
+  }, []);
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <ZenPressable
+        style={styles.sessionItem}
+        onPress={onPress}
+      >
+        <View style={styles.sessionContent}>
+          <Text style={styles.sessionTitle}>
+            {new Date(session.created_at).toLocaleDateString()} • {session.category || conflictLabel}
+          </Text>
+          <IconSymbol name="chevron.right" size={16} color={Colors.textMuted} />
+        </View>
+      </ZenPressable>
+    </Animated.View>
+  );
+}
 
 export default function ArchivesScreen() {
   const { user } = useAuth();
@@ -75,13 +136,15 @@ export default function ArchivesScreen() {
     }
   };
 
+  let globalIndex = 0;
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 100 }}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <ZenPressable style={styles.backButton} onPress={() => router.back()}>
           <IconSymbol name="chevron.left" size={24} color={Colors.text} />
           <Text style={styles.backText}>{t('archives.backToSanctuary')}</Text>
-        </TouchableOpacity>
+        </ZenPressable>
 
         <Text style={styles.title}>{t('archives.title')}</Text>
 
@@ -93,27 +156,26 @@ export default function ArchivesScreen() {
             <Text style={styles.emptyText}>{t('archives.empty')}</Text>
           </View>
         ) : (
-          groupedArchives.map((group, index) => (
-            <View key={index} style={styles.groupSection}>
+          groupedArchives.map((group, groupIdx) => (
+            <View key={groupIdx} style={styles.groupSection}>
               <View style={styles.groupHeader}>
                 <IconSymbol name="person.2.fill" size={18} color={Colors.sage} />
                 <Text style={styles.groupName}>{group.name}</Text>
               </View>
 
-              {group.sessions.map((session) => (
-                <TouchableOpacity
-                  key={session.id}
-                  style={styles.sessionItem}
-                  onPress={() => router.push(`/archives/${session.id}`)}
-                >
-                  <View style={styles.sessionContent}>
-                    <Text style={styles.sessionTitle}>
-                      {new Date(session.created_at).toLocaleDateString()} • {session.category || t('archives.conflict')}
-                    </Text>
-                    <IconSymbol name="chevron.right" size={16} color={Colors.textMuted} />
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {group.sessions.map((session) => {
+                const itemIndex = globalIndex;
+                globalIndex += 1;
+                return (
+                  <AnimatedSessionItem
+                    key={session.id}
+                    session={session}
+                    index={itemIndex}
+                    conflictLabel={t('archives.conflict')}
+                    onPress={() => router.push(`/archives/${session.id}`)}
+                  />
+                );
+              })}
             </View>
           ))
         )}

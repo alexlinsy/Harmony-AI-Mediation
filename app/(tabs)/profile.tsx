@@ -1,11 +1,12 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import ZenPressable from '@/components/ZenPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/lib/AuthContext';
+import { LocaleCode, useLanguage } from '@/lib/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useLanguage, LocaleCode } from '@/lib/LanguageContext';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 const LANGUAGE_OPTIONS = [
   { value: 'en' as LocaleCode, labelKey: 'profile.language.en', nativeLabelKey: 'language.en' },
@@ -162,15 +163,15 @@ export default function ProfileScreen() {
                       onBlur={() => setIsEditingName(false)}
                       onSubmitEditing={handleUpdateName}
                     />
-                    <TouchableOpacity onPress={handleUpdateName} style={{ marginLeft: 12 }}>
+                    <ZenPressable onPress={handleUpdateName} style={{ marginLeft: 12 }}>
                       <IconSymbol name="checkmark.circle.fill" size={24} color={Colors.sage} />
-                    </TouchableOpacity>
+                    </ZenPressable>
                   </View>
                 ) : (
-                  <TouchableOpacity onPress={() => setIsEditingName(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <ZenPressable onPress={() => setIsEditingName(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={styles.userName}>{user?.user_metadata?.full_name || t('profile.defaultName')}</Text>
                     <IconSymbol name="pencil" size={14} color={Colors.textMuted} style={{ marginLeft: 8 }} />
-                  </TouchableOpacity>
+                  </ZenPressable>
                 )}
                 <Text style={styles.userStats}>{t('profile.groupsCount', { count: String(groupCount) })}</Text>
               </View>
@@ -205,14 +206,13 @@ export default function ProfileScreen() {
               {LANGUAGE_OPTIONS.map((option) => {
                 const isSelected = preferredLanguage === option.value;
                 return (
-                  <TouchableOpacity
+                  <ZenPressable
                     key={option.value}
                     style={[
                       styles.languageOption,
                       isSelected && styles.languageOptionSelected,
                     ]}
                     onPress={() => handleLanguageChange(option.value)}
-                    activeOpacity={0.7}
                   >
                     <View style={{ flex: 1 }}>
                       <Text
@@ -239,28 +239,28 @@ export default function ProfileScreen() {
                         color={Colors.sage}
                       />
                     )}
-                  </TouchableOpacity>
+                  </ZenPressable>
                 );
               })}
             </View>
 
             {/* Section 3: History & Insights */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 }}>
-              <TouchableOpacity
+              <ZenPressable
                 style={[styles.archiveCard, { flex: 1, marginRight: 8 }]}
                 onPress={() => router.push('/archives')}
               >
                 <IconSymbol name="archivebox.fill" size={24} color={Colors.sage} style={{ marginBottom: 8 }} />
                 <Text style={styles.archiveTitle}>{t('profile.archives')}</Text>
-              </TouchableOpacity>
+              </ZenPressable>
 
-              <TouchableOpacity
+              <ZenPressable
                 style={[styles.archiveCard, { flex: 1, marginLeft: 8 }]}
                 onPress={() => router.push('/explore')}
               >
                 <IconSymbol name="chart.bar.fill" size={24} color={Colors.sage} style={{ marginBottom: 8 }} />
                 <Text style={styles.archiveTitle}>{t('profile.insights')}</Text>
-              </TouchableOpacity>
+              </ZenPressable>
             </View>
 
             <View style={{ marginTop: 24 }}>
@@ -277,13 +277,12 @@ export default function ProfileScreen() {
             </View>
 
             {/* Logout Button */}
-            <TouchableOpacity
+            <ZenPressable
               style={styles.logoutButton}
               onPress={() => signOut()}
-              activeOpacity={0.8}
             >
               <Text style={styles.logoutButtonText}>{t('profile.logout')}</Text>
-            </TouchableOpacity>
+            </ZenPressable>
           </>
         )}
       </ScrollView>
@@ -450,12 +449,16 @@ const styles = StyleSheet.create({
   archiveCard: {
     backgroundColor: Colors.surface,
     padding: 24,
+    width: 150,
     borderRadius: 32,
     shadowColor: Colors.sage,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 100,
   },
   archiveTitle: {
     fontSize: 18,
